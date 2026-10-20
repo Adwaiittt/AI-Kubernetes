@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
 
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, col, select
@@ -12,6 +11,7 @@ from sqlmodel import Session, col, select
 from app.agent.loop import AgentEvent, InvestigationResult, Investigator
 from app.agent.prompts import IncidentPrompt
 from app.models.db import Incident, IncidentStatus, InvestigationEvent
+from app.models.state import audit, transition
 
 Publisher = Callable[[str, AgentEvent], Awaitable[None]]
 
@@ -28,10 +28,24 @@ class InvestigationService:
         self._investigator = investigator
         self._publish = publish
 
-    def create_incident(self, namespace: str, symptom: str, target: str | None = None) -> Incident:
+    def create_incident(
+        self, namespace: str, symptom: str, target: str | None = None, actor: str = "system"
+    ) -> Incident:
         with Session(self._engine) as session:
             incident = Incident(namespace=namespace, symptom=symptom, target=target)
             session.add(incident)
+            audit(
+                session,
+                actor=actor,
+                action="incident_created",
+                incident_id=incident.id,
+                after={
+                    "status": incident.status,
+                    "namespace": namespace,
+                    "target": target,
+                    "symptom": symptom,
+                },
+            )
             session.commit()
             session.refresh(incident)
             return incident
@@ -87,11 +101,11 @@ class InvestigationService:
             if incident is None:
                 raise KeyError(incident_id)
             if result.status == "failed" or result.report is None:
-                incident.status = IncidentStatus.FAILED
+                to_status, action = IncidentStatus.FAILED, "investigation_failed"
             elif result.report.proposed_fix is not None:
-                incident.status = IncidentStatus.PENDING_APPROVAL
+                to_status, action = IncidentStatus.PENDING_APPROVAL, "investigation_completed"
             else:
-                incident.status = IncidentStatus.NO_ACTION
+                to_status, action = IncidentStatus.NO_ACTION, "investigation_completed"
             incident.report = result.report.model_dump(mode="json") if result.report else None
             incident.error = result.error
             incident.model = result.model
@@ -102,6 +116,20 @@ class InvestigationService:
             incident.cache_read_input_tokens = result.usage.cache_read_input_tokens
             incident.cache_creation_input_tokens = result.usage.cache_creation_input_tokens
             incident.latency_ms = result.latency_ms
-            incident.updated_at = datetime.now(UTC)
             session.add(incident)
+            transition(
+                session,
+                incident,
+                to_status,
+                actor="agent",
+                action=action,
+                detail=result.error,
+                after={
+                    "status": to_status,
+                    "proposed_fix": incident.report.get("proposed_fix")
+                    if incident.report
+                    else None,
+                    "tool_calls": result.tool_calls,
+                },
+            )
             session.commit()

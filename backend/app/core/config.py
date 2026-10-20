@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     agent_max_tokens: int = Field(default=16_000, gt=0)  # per model response
     agent_report_retries: int = Field(default=1, ge=0)
 
+    # --- Approval gate / executor --------------------------------------------------------
+    executor_url: str = Field(default="http://localhost:8001", alias="EXECUTOR_URL")
+    executor_api_key: SecretStr | None = Field(default=None, alias="EXECUTOR_API_KEY")
+    approval_signing_key: SecretStr | None = Field(default=None, alias="APPROVAL_SIGNING_KEY")
+    approval_token_ttl_seconds: int = Field(default=300, gt=0)
+    rollout_wait_seconds: float = Field(default=60.0, ge=0)
+
     # --- Storage ------------------------------------------------------------------------------
     database_url: str = Field(default="sqlite:///./k8s_ai_monitor.db", alias="DATABASE_URL")
 

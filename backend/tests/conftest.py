@@ -33,6 +33,11 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureReques
         "ANTHROPIC_EFFORT",
         "ANTHROPIC_REFUSAL_FALLBACK",
         "DATABASE_URL",
+        "EXECUTOR_KUBECONFIG",
+        "EXECUTOR_ALLOWED_NAMESPACES",
+        "EXECUTOR_API_KEY",
+        "APPROVAL_SIGNING_KEY",
+        "EXECUTOR_URL",
     ):
         monkeypatch.delenv(var, raising=False)
 

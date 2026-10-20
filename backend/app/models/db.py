@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Column, event
+from sqlalchemy import DDL, JSON, Column, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, SQLModel, create_engine
@@ -20,6 +21,10 @@ class IncidentStatus:
     INVESTIGATING = "investigating"
     PENDING_APPROVAL = "pending_approval"  # report has a proposed fix awaiting a human
     NO_ACTION = "no_action"  # report done, nothing to apply
+    APPROVED = "approved"
+    APPLYING = "applying"
+    APPLIED = "applied"
+    REJECTED = "rejected"
     FAILED = "failed"
 
 
@@ -43,6 +48,58 @@ class Incident(SQLModel, table=True):
     cache_read_input_tokens: int = 0
     cache_creation_input_tokens: int = 0
     latency_ms: int | None = None
+
+    # Remediation
+    action: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))  # ActionRequest
+    dry_run: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))  # PlanResult
+    execution: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))  # PlanResult
+    rollout_status: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+
+
+class Approval(SQLModel, table=True):
+    """The human decision on an incident. At most one per incident (unique incident_id)."""
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex, primary_key=True)
+    incident_id: str = Field(foreign_key="incident.id", unique=True, index=True)
+    decision: str  # approved | rejected
+    actor: str
+    comment: str | None = None
+    action_sha256: str
+    created_at: datetime = Field(default_factory=_now)
+    consumed_at: datetime | None = None
+
+
+class AuditLog(SQLModel, table=True):
+    """Append-only record of every state transition and remediation step.
+
+    UPDATE and DELETE are rejected by SQLite triggers (see below), not just by convention.
+    """
+
+    __tablename__ = "audit_log"
+
+    id: int | None = Field(default=None, primary_key=True)
+    at: datetime = Field(default_factory=_now, index=True)
+    actor: str
+    action: str
+    incident_id: str | None = Field(default=None, index=True)
+    from_status: str | None = None
+    to_status: str | None = None
+    before: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    after: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    detail: str | None = None
+
+
+_ddl: Callable[[str], Any] = DDL  # SQLAlchemy's DDL is untyped
+
+for _op in ("UPDATE", "DELETE"):
+    event.listen(
+        AuditLog.__table__,  # type: ignore[attr-defined]
+        "after_create",
+        _ddl(
+            f"CREATE TRIGGER audit_log_no_{_op.lower()} BEFORE {_op} ON audit_log "
+            "BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;"
+        ).execute_if(dialect="sqlite"),
+    )
 
 
 class InvestigationEvent(SQLModel, table=True):
