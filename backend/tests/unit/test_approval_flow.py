@@ -158,7 +158,7 @@ def test_action_cannot_run_without_approval(flow: Flow) -> None:
     run(flow.svc.dry_run(iid, actor="alice"))
     # The internal apply path refuses a pending (unapproved) incident...
     with pytest.raises(ApprovalError, match="no unused approval"):
-        run(flow.svc._apply(iid, "made-up-approval-id"))
+        run(flow.svc.apply(iid, "made-up-approval-id"))
     # ...and the executor refuses any call without a genuine token.
     action = ActionRequest.model_validate(flow.get(iid).action)
     with pytest.raises(ExecutorClientError):
@@ -178,7 +178,7 @@ def test_rejected_action_cannot_run(flow: Flow) -> None:
     (decision,) = flow.svc.approvals(iid)
     assert decision.decision == "rejected"
     with pytest.raises(ApprovalError, match="no unused approval"):
-        run(flow.svc._apply(iid, decision.id))
+        run(flow.svc.apply(iid, decision.id))
     assert flow.executor.apps.applied == []
     assert flow.audit(iid)[-1].action == "rejected"
     assert flow.audit(iid)[-1].detail == "needs a code fix instead"
@@ -193,7 +193,7 @@ def test_approval_cannot_be_reused(flow: Flow) -> None:
     with pytest.raises(ApprovalError):
         run(flow.svc.approve(iid, actor="alice"))
     with pytest.raises(ApprovalError, match="no unused approval"):
-        run(flow.svc._apply(iid, approval.id))
+        run(flow.svc.apply(iid, approval.id))
     # Even replaying the exact token at the executor fails: it tracks used approvals itself.
     (token,) = flow.client.tokens
     action = ActionRequest.model_validate(flow.get(iid).action)

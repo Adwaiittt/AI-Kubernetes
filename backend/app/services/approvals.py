@@ -103,6 +103,11 @@ class ApprovalService:
 
     async def approve(self, incident_id: str, actor: str, comment: str | None = None) -> Incident:
         """Record the approval, then run the executor. Returns the final incident."""
+        approval_id = self.record_approval(incident_id, actor, comment)
+        return await self.apply(incident_id, approval_id)
+
+    def record_approval(self, incident_id: str, actor: str, comment: str | None = None) -> str:
+        """Record the human decision (-> approved) and return the approval id. Does not apply."""
         with Session(self._engine) as session:
             incident = self._get(session, incident_id)
             if incident.status != S.PENDING_APPROVAL:
@@ -121,8 +126,7 @@ class ApprovalService:
                 action_sha256=action.digest(),
             )
             self._decide(session, incident, approval, S.APPROVED, "approved")
-            approval_id = approval.id
-        return await self._apply(incident_id, approval_id)
+            return approval.id
 
     def reject(self, incident_id: str, actor: str, comment: str | None = None) -> Incident:
         with Session(self._engine) as session:
@@ -172,7 +176,7 @@ class ApprovalService:
 
     # --- apply --------------------------------------------------------------------------
 
-    async def _apply(self, incident_id: str, approval_id: str) -> Incident:
+    async def apply(self, incident_id: str, approval_id: str) -> Incident:
         with Session(self._engine) as session:
             incident = self._get(session, incident_id)
             approval = session.get(Approval, approval_id)
