@@ -1,0 +1,80 @@
+name: Chaos benchmark
+
+# Manual only: every run calls the Claude API and costs tokens.
+# Requires the ANTHROPIC_API_KEY repository (or environment) secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Runs per scenario
+        type: number
+        default: 1
+      scenarios:
+        description: Space-separated scenario ids or prefixes (empty = all), e.g. "01 05"
+        type: string
+        default: ""
+      model:
+        description: Claude model
+        type: choice
+        default: claude-sonnet-5-5
+        options: [claude-sonnet-5-5, claude-opus-5-5, claude-haiku-5-5]
+      judge:
+        description: Also grade root causes with an LLM judge
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chaos-benchmark # never two token-spending runs at once
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: benchmark # optional: protect the secret with required reviewers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: k8s-ai-monitor
+          config: deploy/kind-config.yaml
+      - run: deploy/scripts/setup-kind.sh
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.2"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Run benchmark
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ inputs.model }}
+          # Inputs go through env, never interpolated into the script (injection-safe).
+          RUNS: ${{ inputs.runs }}
+          SCENARIOS: ${{ inputs.scenarios }}
+          JUDGE: ${{ inputs.judge }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set"; exit 1
+          fi
+          [[ "$RUNS" =~ ^[0-9]+$ ]] || { echo "::error::runs must be a number"; exit 1; }
+          [[ "$SCENARIOS" =~ ^[0-9a-z\ -]*$ ]] || { echo "::error::invalid scenarios"; exit 1; }
+          args=(--runs "$RUNS" --out chaos/results/ci)
+          if [ -n "$SCENARIOS" ]; then read -ra ids <<< "$SCENARIOS"; args+=(--scenarios "${ids[@]}"); fi
+          if [ "$JUDGE" = "true" ]; then args+=(--judge); fi
+          uv run --project backend python chaos/run_benchmark.py "${args[@]}"
+      - name: Job summary
+        if: always()
+        run: cat chaos/results/ci/results.md >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: chaos-results
+          path: chaos/results/ci/
+          if-no-files-found: warn

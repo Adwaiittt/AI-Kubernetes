@@ -1,0 +1,67 @@
+name: Integration
+
+# Real kind cluster: apply the RBAC manifests, then exercise the read-only tools as
+# monitor-reader and the executor as monitor-executor, including RBAC denial checks.
+# Also checks every chaos scenario still reproduces (no API calls).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+        with:
+          version: v0.33.0
+          cluster_name: k8s-ai-monitor
+          config: deploy/kind-config.yaml
+      - name: Apply RBAC, install metrics-server, mint per-identity kubeconfigs
+        run: deploy/scripts/setup-kind.sh
+      - name: RBAC smoke checks
+        run: |
+          set -euo pipefail
+          r=system:serviceaccount:k8s-ai-monitor:monitor-reader
+          e=system:serviceaccount:k8s-ai-monitor:monitor-executor
+          # `kubectl auth can-i` exits non-zero for "no", hence `|| true` on the denials.
+          [ "$(kubectl auth can-i list pods -n demo --as=$r)" = yes ]
+          [ "$(kubectl auth can-i delete pods -n demo --as=$r || true)" = no ]
+          [ "$(kubectl auth can-i get secrets -n demo --as=$r || true)" = no ]
+          [ "$(kubectl auth can-i patch deployments -n demo --as=$e)" = yes ]
+          [ "$(kubectl auth can-i patch deployments -n default --as=$e || true)" = no ]
+          [ "$(kubectl auth can-i delete deployments -n demo --as=$e || true)" = no ]
+          [ "$(kubectl auth can-i get secrets -n demo --as=$e || true)" = no ]
+          echo "RBAC matches the security model"
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.2"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+      - name: Integration tests
+        working-directory: backend
+        env:
+          MONITOR_READER_KUBECONFIG: ${{ github.workspace }}/.kube/monitor-reader.kubeconfig
+          EXECUTOR_KUBECONFIG: ${{ github.workspace }}/.kube/monitor-executor.kubeconfig
+        run: |
+          uv sync --locked
+          uv run pytest -m integration -v
+      - name: Chaos scenarios reproduce (setup only, no API calls)
+        run: uv run --project backend python chaos/run_benchmark.py --setup-only --out "$RUNNER_TEMP/chaos"
+      - name: Cluster state on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide
+          kubectl get events -A --sort-by=.lastTimestamp | tail -50
