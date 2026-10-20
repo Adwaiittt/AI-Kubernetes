@@ -1,0 +1,21 @@
+title: OOMKilled (memory limit too low for the workload)
+target: checkout
+symptom: checkout pods keep restarting and users intermittently get 502s from the cart page.
+steps:
+  - manifest: manifest.yaml
+failure:
+  type: terminated_reason
+  reasons: [OOMKilled]
+  min_restarts: 1
+  timeout_seconds: 180
+ground_truth:
+  category: resource_limits
+  description: >
+    The container's memory limit (32Mi) is below the workload's fixed ~40MB working set, so the
+    kernel OOM-kills it (exit 137) on every start. Fix: raise the memory limit.
+  # Every group must match (any keyword within a group), case-insensitive, in summary+root_cause.
+  keywords:
+    - [oom, out of memory, out-of-memory]
+    - [memory]
+    - [limit]
+  expected_actions: [patch_resources]

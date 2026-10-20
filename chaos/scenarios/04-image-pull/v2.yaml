@@ -1,0 +1,13 @@
+# A new rollout that references an image tag that doesn't exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  labels: { app: catalog }
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36-rc-does-not-exist
+          command: ["sh", "-c", "echo catalog v2 serving; sleep 3600"]

@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  labels: { app: inventory }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: inventory }
+  template:
+    metadata:
+      labels: { app: inventory }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          env:
+            - name: CONFIG_SCHEMA
+              value: "v1"
+          command:
+            - sh
+            - -c
+            - |
+              echo "inventory starting with config schema $CONFIG_SCHEMA"
+              sleep 3600
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }

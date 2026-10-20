@@ -1,0 +1,21 @@
+title: ImagePullBackOff (bad image tag introduced by a new rollout)
+target: catalog
+symptom: After this morning's catalog deploy the rollout is stuck and new pods never start.
+steps:
+  - manifest: v1.yaml
+    wait: available
+  - manifest: v2.yaml
+failure:
+  type: waiting_reason
+  reasons: [ImagePullBackOff, ErrImagePull]
+  timeout_seconds: 180
+ground_truth:
+  category: bad_image
+  description: >
+    The latest rollout (revision 2) changed the image to busybox:1.36-rc-does-not-exist, a tag
+    that doesn't exist, so new pods are stuck in ErrImagePull/ImagePullBackOff while revision 1
+    still serves. Fix: roll back to the previous revision.
+  keywords:
+    - [image]
+    - [tag, does-not-exist, pull, not found, manifest unknown]
+  expected_actions: [rollout_undo]

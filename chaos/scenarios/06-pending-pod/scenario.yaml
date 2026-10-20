@@ -1,0 +1,18 @@
+title: Pending pod (resource requests exceed node capacity)
+target: analytics
+symptom: The analytics worker was deployed an hour ago but it has never started.
+steps:
+  - manifest: manifest.yaml
+failure:
+  type: unschedulable
+  timeout_seconds: 120
+ground_truth:
+  category: scheduling
+  description: >
+    The pod requests 512Gi of memory, more than any node can allocate, so the scheduler reports
+    "Insufficient memory" and the pod stays Pending. Fix: lower the memory request (and limit)
+    to something the nodes can fit.
+  keywords:
+    - [insufficient, exceed, capacity, unschedulable, failedscheduling, too large, more than]
+    - [memory, request]
+  expected_actions: [patch_resources]

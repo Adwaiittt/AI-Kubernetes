@@ -1,0 +1,20 @@
+title: CrashLoopBackOff (liveness probe checks the wrong port)
+target: payments
+symptom: payments pods restart every few seconds even though the app logs look healthy.
+steps:
+  - manifest: manifest.yaml
+failure:
+  type: restarts
+  min_restarts: 2
+  timeout_seconds: 180
+ground_truth:
+  category: probe_misconfiguration
+  description: >
+    The HTTP server listens on port 80, but the liveness probe targets port 8080 (/healthz), so
+    the probe fails, the kubelet kills the container, and it restarts repeatedly (events show
+    "Liveness probe failed ... connection refused"). The fix is to correct the probe port, a
+    spec change that none of the four automated actions can make.
+  keywords:
+    - [liveness, probe]
+    - ["8080", port]
+  expected_actions: [null]

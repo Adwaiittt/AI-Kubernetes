@@ -1,0 +1,21 @@
+title: Bad rollout (new revision crashes, previous revision healthy)
+target: inventory
+symptom: Error rates on inventory went up right after the latest deploy; some pods are crashing.
+steps:
+  - manifest: v1.yaml
+    wait: available
+  - manifest: v2.yaml
+failure:
+  type: crashloop
+  min_restarts: 1
+  timeout_seconds: 180
+ground_truth:
+  category: bad_rollout
+  description: >
+    Revision 2 changed the startup command and added FEATURE_RESERVATIONS=true; its pods exit
+    with code 2 ("panic: reservations feature requires config schema v2"), while revision 1
+    pods keep running. Fix: roll back to the previous revision.
+  keywords:
+    - [rollout, revision, deploy, new version, release]
+    - [crash, exit, panic, fail]
+  expected_actions: [rollout_undo]

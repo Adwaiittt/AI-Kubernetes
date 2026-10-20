@@ -1,0 +1,21 @@
+# Requests far more memory than any node has -> Pending / FailedScheduling forever.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics
+  labels: { app: analytics }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: analytics }
+  template:
+    metadata:
+      labels: { app: analytics }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo analytics worker up; sleep 3600"]
+          resources:
+            requests: { cpu: 50m, memory: 512Gi }
+            limits: { memory: 512Gi }

@@ -1,0 +1,23 @@
+# New revision: same image, new startup code that panics on the existing config.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory
+  labels: { app: inventory }
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: CONFIG_SCHEMA
+              value: "v1"
+            - name: FEATURE_RESERVATIONS
+              value: "true"
+          command:
+            - sh
+            - -c
+            - |
+              echo "inventory v2 starting with config schema $CONFIG_SCHEMA"
+              echo "panic: reservations feature requires config schema v2, found $CONFIG_SCHEMA" >&2
+              exit 2

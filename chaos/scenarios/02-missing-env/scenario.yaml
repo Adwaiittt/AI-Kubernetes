@@ -1,0 +1,21 @@
+title: CrashLoopBackOff (app exits on a missing required env var)
+target: orders
+symptom: The orders service never becomes ready after deploy; its pods keep crashing.
+steps:
+  - manifest: manifest.yaml
+failure:
+  type: crashloop
+  min_restarts: 1
+  timeout_seconds: 180
+ground_truth:
+  category: configuration
+  description: >
+    The container exits with code 1 at startup because the required environment variable
+    DATABASE_URL is not set (visible in the previous container's logs). The fix is a config
+    change (add the env var / secret), which none of the four automated actions can make, so no
+    automated fix should be proposed.
+  keywords:
+    - [database_url]
+    - [env, environment variable, not set, missing, unset]
+  # null = "no automated fix" is the correct answer.
+  expected_actions: [null]
