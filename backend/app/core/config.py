@@ -50,6 +50,29 @@ class Settings(BaseSettings):
     approval_token_ttl_seconds: int = Field(default=300, gt=0)
     rollout_wait_seconds: float = Field(default=60.0, ge=0)
 
+    # --- HTTP API -----------------------------------------------------------------------
+    # Approvers as "name:key" pairs, comma-separated. The name is recorded in the audit log.
+    approver_api_keys: SecretStr | None = Field(default=None, alias="APPROVER_API_KEYS")
+    cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
+    max_concurrent_investigations: int = Field(default=3, gt=0)
+    sse_keepalive_seconds: float = Field(default=15.0, gt=0)
+
+    def approvers(self) -> dict[str, str]:
+        """{api_key: approver_name}. Malformed entries and keys under 16 chars are rejected."""
+        if self.approver_api_keys is None:
+            return {}
+        out: dict[str, str] = {}
+        for entry in self.approver_api_keys.get_secret_value().split(","):
+            if not entry.strip():
+                continue
+            name, sep, key = entry.strip().partition(":")
+            if not sep or not name or len(key) < 16:
+                raise ValueError(
+                    "APPROVER_API_KEYS entries must be name:key with keys of 16+ characters"
+                )
+            out[key] = name
+        return out
+
     # --- Storage ------------------------------------------------------------------------------
     database_url: str = Field(default="sqlite:///./k8s_ai_monitor.db", alias="DATABASE_URL")
 
