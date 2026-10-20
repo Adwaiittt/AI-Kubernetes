@@ -120,4 +120,3 @@ class TaskRunner:
         with Session(self._engine) as session:
             incident = session.get(Incident, incident_id)
             return incident.status if incident else "unknown"
-
