@@ -86,4 +86,82 @@ def test_no_manifest_binds_reader_to_anything_cluster_wide() -> None:
         for doc in _docs(path):
             if doc["kind"] == "ClusterRoleBinding":
                 names = {s.get("name") for s in doc.get("subjects", [])}
-                assert "monitor-reader" not in names, path.name
+                assert not names & {"monitor-reader", "monitor-executor"}, path.name
+
+
+# --- executor ---------------------------------------------------------------------------------
+
+EXECUTOR_MANIFEST = REPO / "deploy" / "k8s" / "20-executor-rbac.yaml"
+
+
+@pytest.fixture
+def executor_docs() -> list[dict[str, Any]]:
+    return _docs(EXECUTOR_MANIFEST)
+
+
+def test_executor_grants_exactly_patch_and_get(executor_docs: list[dict[str, Any]]) -> None:
+    granted = {
+        (group, resource, verb)
+        for role in _roles(executor_docs)
+        for rule in role["rules"]
+        for group in rule["apiGroups"]
+        for resource in rule["resources"]
+        for verb in rule["verbs"]
+    }
+    assert granted == {
+        ("apps", "deployments", "get"),
+        ("apps", "deployments", "patch"),
+        ("apps", "replicasets", "get"),
+    }
+
+
+def test_executor_has_no_dangerous_permissions(executor_docs: list[dict[str, Any]]) -> None:
+    for role in _roles(executor_docs):
+        for rule in role["rules"]:
+            assert not set(rule["verbs"]) & {
+                "delete",
+                "deletecollection",
+                "create",
+                "update",
+                "escalate",
+                "bind",
+                "impersonate",
+                "*",
+            }
+            assert not set(rule["resources"]) & FORBIDDEN_RESOURCES
+            assert "*" not in rule["apiGroups"]
+            assert "" not in rule["apiGroups"]  # no core resources at all (pods, secrets, ...)
+
+
+def test_executor_is_namespace_scoped_and_bound_only_to_its_sa(
+    executor_docs: list[dict[str, Any]],
+) -> None:
+    kinds = {d["kind"] for d in executor_docs}
+    assert not kinds & {"ClusterRole", "ClusterRoleBinding"}
+    for binding in (d for d in executor_docs if d["kind"] == "RoleBinding"):
+        assert binding["roleRef"] == {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "Role",
+            "name": "monitor-executor",
+        }
+        assert binding["subjects"] == [
+            {"kind": "ServiceAccount", "name": "monitor-executor", "namespace": "k8s-ai-monitor"}
+        ]
+
+
+def test_executor_role_namespaces_match_the_default_allowlist(
+    executor_docs: list[dict[str, Any]],
+) -> None:
+    from app.executor.config import ExecutorSettings
+
+    role_namespaces = {r["metadata"]["namespace"] for r in _roles(executor_docs)}
+    allowlist = ExecutorSettings(_env_file=None).policy().allowed_namespaces
+    assert role_namespaces == set(allowlist)
+    assert "kube-system" not in role_namespaces
+
+
+def test_identities_are_disjoint() -> None:
+    """The reader can't write, and the executor can't read pods/logs/secrets."""
+    reader = {r["metadata"]["name"] for r in _roles(_docs(READER_MANIFEST))}
+    executor = {r["metadata"]["name"] for r in _roles(_docs(EXECUTOR_MANIFEST))}
+    assert reader == {"monitor-reader"} and executor == {"monitor-executor"}

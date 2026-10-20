@@ -1,0 +1,40 @@
+# Identity used ONLY by the executor service, which applies human-approved actions.
+#   * namespaced Role, applied only in allowlisted namespaces (must match
+#     EXECUTOR_ALLOWED_NAMESPACES); no ClusterRole / ClusterRoleBinding
+#   * patch + get on deployments, get on replicasets. No create/delete, no list, no secrets.
+#     The executor can't list ReplicaSets: for rollout_undo the backend resolves the target RS
+#     with its reader identity, and the executor verifies it by GET (ownership + revision).
+# tests/unit/test_rbac_manifests.py enforces all of the above.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitor-executor
+  namespace: k8s-ai-monitor
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: monitor-executor
+  namespace: demo
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitor-executor
+  namespace: demo
+subjects:
+  - kind: ServiceAccount
+    name: monitor-executor
+    namespace: k8s-ai-monitor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: monitor-executor
