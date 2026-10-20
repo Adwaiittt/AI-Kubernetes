@@ -2,9 +2,12 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
 class Settings(BaseSettings):
@@ -24,6 +27,24 @@ class Settings(BaseSettings):
     log_max_bytes: int = Field(default=16_000, gt=0)
     list_max_items: int = Field(default=100, gt=0)
     events_max_items: int = Field(default=50, gt=0)
+
+    # --- Claude agent -----------------------------------------------------------------------
+    # Secrets come only from the environment (or an untracked .env); never hardcoded.
+    anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_model: str | None = Field(default=None, alias="ANTHROPIC_MODEL")
+    anthropic_effort: Effort = Field(default="medium", alias="ANTHROPIC_EFFORT")
+    # Server-side refusal fallback (`fallbacks: "default"`); Claude API only.
+    anthropic_refusal_fallback: bool = Field(default=True, alias="ANTHROPIC_REFUSAL_FALLBACK")
+
+    agent_max_tool_calls: int = Field(default=15, gt=0)
+    agent_max_turns: int = Field(default=25, gt=0)  # hard stop on model round-trips
+    agent_tool_timeout_seconds: float = Field(default=20.0, gt=0)
+    agent_token_budget: int = Field(default=600_000, gt=0)  # all input + output tokens
+    agent_max_tokens: int = Field(default=16_000, gt=0)  # per model response
+    agent_report_retries: int = Field(default=1, ge=0)
+
+    # --- Storage ------------------------------------------------------------------------------
+    database_url: str = Field(default="sqlite:///./k8s_ai_monitor.db", alias="DATABASE_URL")
 
     log_level: str = "INFO"
 

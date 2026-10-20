@@ -53,6 +53,16 @@ plugins = ["pydantic.mypy"]
 module = ["kubernetes.*"]
 ignore_missing_imports = true
 
+# `uv run pytest --cov` enforces >= 85% on the security-critical packages.
+[tool.coverage.run]
+source = ["app/agent", "app/executor"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["integration: requires a running kind cluster with deploy/k8s applied"]

@@ -25,8 +25,16 @@ def _hermetic_env(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureReques
     """Unit tests must not pick up a developer's real cluster settings from the environment."""
     if request.node.get_closest_marker("integration"):
         return
-    monkeypatch.delenv("MONITOR_READER_KUBECONFIG", raising=False)
-    monkeypatch.delenv("MONITOR_READER_CONTEXT", raising=False)
+    for var in (
+        "MONITOR_READER_KUBECONFIG",
+        "MONITOR_READER_CONTEXT",
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_EFFORT",
+        "ANTHROPIC_REFUSAL_FALLBACK",
+        "DATABASE_URL",
+    ):
+        monkeypatch.delenv(var, raising=False)
 
 
 @pytest.fixture
