@@ -1,0 +1,25 @@
+# secrets / local creds
+.env
+.kube/
+*.kubeconfig
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.db
+*.sqlite
+
+# node
+node_modules/
+.next/
+out/
+
+# chaos benchmark raw output
+chaos/results/raw/
