@@ -1,0 +1,17 @@
+# k8s-ai-monitor: where the monitor's own workloads and ServiceAccounts live.
+# demo:           an example monitored namespace. Every monitored namespace gets its own copy of
+#                 the reader Role/RoleBinding (see 10-reader-rbac.yaml); nothing is cluster-wide.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: k8s-ai-monitor
+  labels:
+    app.kubernetes.io/part-of: k8s-ai-monitor
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    app.kubernetes.io/part-of: k8s-ai-monitor
+    k8s-ai-monitor/monitored: "true"
