@@ -4,6 +4,9 @@
 #
 #   deploy/scripts/make-kubeconfig.sh [service-account] [output-file]
 #   deploy/scripts/make-kubeconfig.sh monitor-reader .kube/monitor-reader.kubeconfig
+#
+# KUBE_SERVER overrides the API server URL, e.g. for containers on kind's docker network:
+#   KUBE_SERVER=https://k8s-ai-monitor-control-plane:6443 deploy/scripts/make-kubeconfig.sh ...
 set -euo pipefail
 
 SA="${1:-monitor-reader}"
@@ -12,7 +15,7 @@ NS="k8s-ai-monitor"
 DURATION="${TOKEN_DURATION:-24h}"
 
 TOKEN="$(kubectl create token "$SA" -n "$NS" --duration="$DURATION")"
-SERVER="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+SERVER="${KUBE_SERVER:-$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')}"
 CA="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}')"
 
 mkdir -p "$(dirname "$OUT")"

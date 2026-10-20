@@ -1,0 +1,74 @@
+# Local stack against the kind cluster:
+#   deploy/scripts/setup-kind.sh && deploy/scripts/compose-kubeconfigs.sh
+#   cp .env.example .env   # fill in APPROVAL_SIGNING_KEY, EXECUTOR_API_KEY, APPROVER_API_KEYS
+#   docker compose up --build
+# Dashboard http://localhost:3000 · API http://localhost:8000/docs · executor: internal only.
+name: k8s-ai-monitor
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+
+services:
+  executor:
+    <<: *hardening
+    build: ./backend
+    image: k8s-ai-monitor/backend:dev
+    command: ["uvicorn", "app.executor.service:create_app", "--factory",
+              "--host", "0.0.0.0", "--port", "8001"]
+    environment:
+      PORT: "8001"
+      EXECUTOR_KUBECONFIG: /kube/monitor-executor.kubeconfig
+      EXECUTOR_API_KEY: ${EXECUTOR_API_KEY:?set EXECUTOR_API_KEY in .env}
+      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:?set APPROVAL_SIGNING_KEY in .env}
+      EXECUTOR_ALLOWED_NAMESPACES: ${EXECUTOR_ALLOWED_NAMESPACES:-demo}
+    volumes:
+      # Only the executor's identity is mounted here; never the reader's or an admin config.
+      - ./.kube/compose/monitor-executor.kubeconfig:/kube/monitor-executor.kubeconfig:ro
+      - executor-data:/data
+    networks: [internal, kind]
+    # No published port: only the API can reach the executor.
+
+  api:
+    <<: *hardening
+    image: k8s-ai-monitor/backend:dev
+    depends_on:
+      executor: { condition: service_healthy }
+    environment:
+      MONITOR_READER_KUBECONFIG: /kube/monitor-reader.kubeconfig
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
+      ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-medium}
+      EXECUTOR_URL: http://executor:8001
+      EXECUTOR_API_KEY: ${EXECUTOR_API_KEY:?set EXECUTOR_API_KEY in .env}
+      APPROVAL_SIGNING_KEY: ${APPROVAL_SIGNING_KEY:?set APPROVAL_SIGNING_KEY in .env}
+      APPROVER_API_KEYS: ${APPROVER_API_KEYS:?set APPROVER_API_KEYS in .env}
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      - ./.kube/compose/monitor-reader.kubeconfig:/kube/monitor-reader.kubeconfig:ro
+      - api-data:/data
+    ports: ["127.0.0.1:8000:8000"]
+    networks: [internal, kind]
+
+  dashboard:
+    <<: *hardening
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000  # as seen from your browser
+    image: k8s-ai-monitor/dashboard:dev
+    depends_on: [api]
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [internal]
+
+volumes:
+  api-data:
+  executor-data:
+
+networks:
+  internal: {}
+  kind:
+    external: true  # created by `kind create cluster`
