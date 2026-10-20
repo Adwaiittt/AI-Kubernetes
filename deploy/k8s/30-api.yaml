@@ -1,0 +1,70 @@
+# API + agent. Runs as monitor-reader (read-only) and reaches the executor over a cluster
+# Service. Secrets come from the k8s-ai-monitor-secrets Secret (never committed):
+#   kubectl -n k8s-ai-monitor create secret generic k8s-ai-monitor-secrets \
+#     --from-literal=ANTHROPIC_API_KEY=... --from-literal=APPROVAL_SIGNING_KEY=... \
+#     --from-literal=EXECUTOR_API_KEY=... --from-literal=APPROVER_API_KEYS=alice:...
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: k8s-ai-monitor
+  labels: { app.kubernetes.io/name: api, app.kubernetes.io/part-of: k8s-ai-monitor }
+spec:
+  replicas: 1 # SQLite + in-process SSE broker: single replica by design (see README limits)
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: api }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: api, app.kubernetes.io/part-of: k8s-ai-monitor }
+    spec:
+      serviceAccountName: monitor-reader
+      automountServiceAccountToken: true # the reader identity is the whole point
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: api
+          image: k8s-ai-monitor/backend:dev
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8000 }]
+          env:
+            - { name: ANTHROPIC_MODEL, value: claude-sonnet-5-5 }
+            - { name: EXECUTOR_URL, value: "http://executor.k8s-ai-monitor.svc:8001" }
+            - { name: CORS_ORIGINS, value: "http://localhost:3000" }
+          envFrom:
+            - secretRef: { name: k8s-ai-monitor-secrets }
+          # EXECUTOR_* settings in the shared Secret are harmless here: this pod's token is
+          # the reader's, so it couldn't patch anything even if it tried.
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: data, emptyDir: {} } # demo storage; use a PVC to keep history
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: k8s-ai-monitor
+  labels: { app.kubernetes.io/name: api }
+spec:
+  selector: { app.kubernetes.io/name: api }
+  ports: [{ name: http, port: 8000, targetPort: http }]

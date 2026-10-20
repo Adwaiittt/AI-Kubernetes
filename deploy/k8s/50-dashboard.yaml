@@ -1,0 +1,54 @@
+# Dashboard. Has no Kubernetes access at all (no token mounted); it only talks to the API from
+# the user's browser. The image bakes NEXT_PUBLIC_API_URL (default http://localhost:8000), so
+# for a local cluster use: kubectl -n k8s-ai-monitor port-forward svc/api 8000 & svc/dashboard 3000
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: k8s-ai-monitor
+  labels: { app.kubernetes.io/name: dashboard, app.kubernetes.io/part-of: k8s-ai-monitor }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: dashboard }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: dashboard, app.kubernetes.io/part-of: k8s-ai-monitor }
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: dashboard
+          image: k8s-ai-monitor/dashboard:dev
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 3000 }]
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 25m, memory: 96Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: next-cache, mountPath: /app/.next/cache }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: next-cache, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: k8s-ai-monitor
+  labels: { app.kubernetes.io/name: dashboard }
+spec:
+  selector: { app.kubernetes.io/name: dashboard }
+  ports: [{ name: http, port: 3000, targetPort: http }]
