@@ -1,0 +1,31 @@
+# Demo workload with a fixed ~40MB working set: OOMKilled under its 32Mi limit, healthy once
+# the limit is raised (e.g. to 128Mi), which is the fix the agent should propose.
+#   kubectl apply -f deploy/demo/checkout-oom.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: demo
+  labels: { app: checkout }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: checkout }
+  template:
+    metadata:
+      labels: { app: checkout }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "loading product catalog into memory"
+              catalog=$(head -c 40000000 /dev/zero | tr '\0' 'x')
+              echo "catalog loaded (${#catalog} bytes); serving"
+              sleep 3600
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 32Mi }
