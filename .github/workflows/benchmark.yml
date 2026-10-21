@@ -1,7 +1,7 @@
 name: Chaos benchmark
 
-# Manual only: every run calls the Claude API and costs tokens.
-# Requires the ANTHROPIC_API_KEY repository (or environment) secret.
+# Manual only: every run calls an LLM API (may cost tokens).
+# Requires the GEMINI_API_KEY or ANTHROPIC_API_KEY repository (or environment) secret.
 
 on:
   workflow_dispatch:
@@ -15,10 +15,16 @@ on:
         type: string
         default: ""
       model:
-        description: Claude model
+        description: Model (the provider is inferred from the name)
         type: choice
-        default: claude-sonnet-5-5
-        options: [claude-sonnet-5-5, claude-opus-5-5, claude-haiku-5-5]
+        default: gemini-3.8-flash
+        options:
+          - gemini-3.8-flash
+          - gemini-4-argon
+          - gemini-3.5-flash-lite
+          - claude-sonnet-5-5
+          - claude-opus-5-5
+          - claude-haiku-5-5
       judge:
         description: Also grade root causes with an LLM judge
         type: boolean
@@ -52,20 +58,24 @@ jobs:
           cache-dependency-glob: backend/uv.lock
       - name: Run benchmark
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_MODEL: ${{ inputs.model }}
           # Inputs go through env, never interpolated into the script (injection-safe).
+          MODEL: ${{ inputs.model }}
           RUNS: ${{ inputs.runs }}
           SCENARIOS: ${{ inputs.scenarios }}
           JUDGE: ${{ inputs.judge }}
         run: |
           set -euo pipefail
-          if [ -z "${ANTHROPIC_API_KEY}" ]; then
-            echo "::error::ANTHROPIC_API_KEY secret is not set"; exit 1
-          fi
+          case "$MODEL" in
+            gemini-*) provider=gemini; key="${GEMINI_API_KEY}"; secret=GEMINI_API_KEY ;;
+            claude-*) provider=anthropic; key="${ANTHROPIC_API_KEY}"; secret=ANTHROPIC_API_KEY ;;
+            *) echo "::error::unknown model"; exit 1 ;;
+          esac
+          if [ -z "$key" ]; then echo "::error::$secret secret is not set"; exit 1; fi
           [[ "$RUNS" =~ ^[0-9]+$ ]] || { echo "::error::runs must be a number"; exit 1; }
           [[ "$SCENARIOS" =~ ^[0-9a-z\ -]*$ ]] || { echo "::error::invalid scenarios"; exit 1; }
-          args=(--runs "$RUNS" --out chaos/results/ci)
+          args=(--provider "$provider" --model "$MODEL" --runs "$RUNS" --out chaos/results/ci)
           if [ -n "$SCENARIOS" ]; then read -ra ids <<< "$SCENARIOS"; args+=(--scenarios "${ids[@]}"); fi
           if [ "$JUDGE" = "true" ]; then args+=(--judge); fi
           uv run --project backend python chaos/run_benchmark.py "${args[@]}"

@@ -39,6 +39,9 @@ services:
       executor: { condition: service_healthy }
     environment:
       MONITOR_READER_KUBECONFIG: /kube/monitor-reader.kubeconfig
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-5-5}
       ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-medium}

@@ -1,7 +1,8 @@
 # API + agent. Runs as monitor-reader (read-only) and reaches the executor over a cluster
 # Service. Secrets come from the k8s-ai-monitor-secrets Secret (never committed):
 #   kubectl -n k8s-ai-monitor create secret generic k8s-ai-monitor-secrets \
-#     --from-literal=ANTHROPIC_API_KEY=... --from-literal=APPROVAL_SIGNING_KEY=... \
+#     --from-literal=ANTHROPIC_API_KEY=... (or GEMINI_API_KEY=... with LLM_PROVIDER=gemini) \
+#     --from-literal=APPROVAL_SIGNING_KEY=... \
 #     --from-literal=EXECUTOR_API_KEY=... --from-literal=APPROVER_API_KEYS=alice:...
 apiVersion: apps/v1
 kind: Deployment
@@ -32,7 +33,9 @@ spec:
           imagePullPolicy: IfNotPresent
           ports: [{ name: http, containerPort: 8000 }]
           env:
+            - { name: LLM_PROVIDER, value: anthropic } # or gemini
             - { name: ANTHROPIC_MODEL, value: claude-sonnet-5-5 }
+            - { name: GEMINI_MODEL, value: gemini-3.8-flash }
             - { name: EXECUTOR_URL, value: "http://executor.k8s-ai-monitor.svc:8001" }
             - { name: CORS_ORIGINS, value: "http://localhost:3000" }
           envFrom:

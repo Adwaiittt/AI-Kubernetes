@@ -27,14 +27,15 @@ if __package__ in (None, ""):  # executed as a script: make `chaos` and `app` im
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 
-from app.agent.loop import AgentConfig, Investigator, build_anthropic_client
+from app.agent.loop import AgentConfig, Investigator
 from app.agent.prompts import IncidentPrompt
+from app.agent.providers import build_provider
 from app.agent.tools import build_registry
 from app.agent.tools.base import ToolContext
 from app.core.config import Settings
 from app.core.k8s import ReadOnlyClients
 from chaos.cluster import Cluster, SetupError, admin_api_client, run_namespace
-from chaos.judge import judge_root_cause
+from chaos.judge import JudgeFn, build_judge
 from chaos.scenario import Scenario, load_scenarios
 from chaos.scoring import (
     RunResult,
@@ -59,7 +60,8 @@ async def run_one(
     cluster: Cluster,
     args: argparse.Namespace,
     settings: Settings,
-    agent_client: Any,
+    llm: Any,  # a ModelProvider (Claude or Gemini) or an Anthropic client
+    judge: JudgeFn | None = None,
 ) -> RunResult:
     namespace = run_namespace(scenario)
     result = RunResult(scenario=scenario.id, run=run, namespace=namespace, status="setup_failed")
@@ -81,7 +83,7 @@ async def run_one(
             await asyncio.to_thread(cluster.reader_api_client), settings.k8s_request_timeout_seconds
         )
         investigator = Investigator(
-            agent_client,
+            llm,
             build_registry(),
             ToolContext(reader, settings),
             AgentConfig.from_settings(settings),
@@ -110,10 +112,8 @@ async def run_one(
                 "root_cause": (report or {}).get("root_cause"),
             }
         )
-        if args.judge and report:
-            passed, reasoning, _ = await judge_root_cause(
-                agent_client, args.judge_model or outcome.model, scenario.ground_truth, report
-            )
+        if args.judge and judge is not None and report:
+            passed, reasoning = await judge(scenario.ground_truth, report)
             result = result.model_copy(update={"judge_pass": passed, "judge_reasoning": reasoning})
         log(
             f"{scenario.id} #{run}: {result.status}"
@@ -141,26 +141,33 @@ async def run_one(
 async def main_async(args: argparse.Namespace) -> int:
     scenarios = load_scenarios(only=args.scenarios)
     settings = Settings()
+    if args.provider:
+        settings = settings.model_copy(update={"llm_provider": args.provider})
     if args.model:
-        settings = settings.model_copy(update={"anthropic_model": args.model})
+        field = "gemini_model" if settings.llm_provider == "gemini" else "anthropic_model"
+        settings = settings.model_copy(update={field: args.model})
+    llm = judge = None
+    config = None
     if not args.setup_only:
-        AgentConfig.from_settings(settings)  # fail fast if ANTHROPIC_MODEL is missing
-    agent_client = None if args.setup_only else build_anthropic_client(settings)
+        config = AgentConfig.from_settings(settings)  # fail fast on missing model / key
+        llm = build_provider(settings, config)
+        if args.judge:
+            judge = build_judge(settings, args.judge_model or config.model)
     cluster = Cluster(admin_api_client(args.kubeconfig, args.context))
 
     started_at = datetime.now(UTC)
     results: list[RunResult] = []
     for scenario in scenarios:
         for run in range(1, args.runs + 1):
-            results.append(await run_one(scenario, run, cluster, args, settings, agent_client))
+            results.append(await run_one(scenario, run, cluster, args, settings, llm, judge))
 
     rows = aggregate(scenarios, results)
     meta = {
-        "model": "setup-only" if args.setup_only else settings.anthropic_model,
+        "model": "setup-only" if config is None else f"{config.provider}/{config.model}",
         "effort": settings.anthropic_effort,
         "runs": args.runs,
         "started_at": started_at.isoformat(timespec="seconds"),
-        "judge_model": (args.judge_model or settings.anthropic_model) if args.judge else None,
+        "judge_model": (args.judge_model or config.model) if args.judge and config else None,
         "setup_only": args.setup_only,
     }
     out_dir = Path(args.out) if args.out else RESULTS_DIR / started_at.strftime("%Y%m%dT%H%M%SZ")
@@ -186,7 +193,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     p.add_argument("--runs", type=int, default=1, help="runs per scenario (default 1)")
     p.add_argument("--scenarios", nargs="*", help="ids or prefixes, e.g. 01 05-bad-rollout")
-    p.add_argument("--model", help="override ANTHROPIC_MODEL")
+    p.add_argument("--provider", choices=["anthropic", "gemini"], help="override LLM_PROVIDER")
+    p.add_argument("--model", help="override the model (ANTHROPIC_MODEL or GEMINI_MODEL)")
     p.add_argument("--judge", action="store_true", help="also grade root causes with an LLM judge")
     p.add_argument("--judge-model", help="judge model (default: the agent model)")
     p.add_argument(

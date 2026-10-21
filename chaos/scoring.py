@@ -16,6 +16,12 @@ PRICING: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-5-5": (4.00, 20.00, 0.20, 5.00),
     "claude-sonnet-5-5": (2.00, 10.00, 0.20, 2.50),
     "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125),
+    # Gemini paid-tier rates as of 2026-10 (thinking billed as output; implicit caching only).
+    # gemini-3.8-flash / 3.6-flash double on 2027-01-01, gemini-4-argon on 2026-12-01.
+    "gemini-3.8-flash": (0.75, 3.75, 0.075, 0.0),
+    "gemini-3.6-flash": (0.75, 3.75, 0.075, 0.0),
+    "gemini-3.5-flash-lite": (0.30, 2.50, 0.03, 0.0),
+    "gemini-4-argon": (2.00, 10.00, 0.10, 0.0),
 }
 
 

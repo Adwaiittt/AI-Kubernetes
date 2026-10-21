@@ -10,6 +10,7 @@ import pytest
 from anthropic.types.beta import BetaMessage
 from chaos import run_benchmark
 from chaos.cluster import SetupError, reader_rbac_docs, run_namespace
+from chaos.judge import judge_prompt, parse_verdict
 from chaos.scenario import FailureCondition, GroundTruth, Scenario, failure_reached, load_scenarios
 from chaos.scoring import (
     PRICING,
@@ -261,13 +262,20 @@ def _args(**kw: Any) -> argparse.Namespace:
 
 
 def _run(
-    cluster: StubCluster, fake: FakeCluster, *responses: BetaMessage, monkeypatch: Any, **kw: Any
+    cluster: StubCluster,
+    fake: FakeCluster,
+    *responses: BetaMessage,
+    monkeypatch: Any,
+    judge_fn: Any = None,
+    **kw: Any,
 ) -> RunResult:
     monkeypatch.setattr(ReadOnlyClients, "from_api_client", lambda *_a, **_k: fake.ctx.clients)
     client, _ = fake_client(*responses)
     settings = Settings(_env_file=None, ANTHROPIC_MODEL=MODEL)
     stub: Any = cluster  # duck-typed stand-in for chaos.cluster.Cluster
-    return asyncio.run(run_benchmark.run_one(SCENARIOS[0], 1, stub, _args(**kw), settings, client))
+    return asyncio.run(
+        run_benchmark.run_one(SCENARIOS[0], 1, stub, _args(**kw), settings, client, judge_fn)
+    )
 
 
 def test_run_one_records_a_failed_investigation(cluster: FakeCluster, monkeypatch: Any) -> None:
@@ -334,17 +342,34 @@ def test_run_one_with_judge(cluster: FakeCluster, monkeypatch: Any) -> None:
     cluster.core.list_namespaced_pod.return_value = f.pod_list(f.pod("checkout-1"))
     monkeypatch.setattr(run_benchmark, "run_namespace", lambda _s: "ns-j")
 
-    async def fake_judge(*_a: Any, **_k: Any) -> tuple[bool, str, dict[str, int]]:
-        return True, "names the 32Mi limit as the cause", {}
+    seen: list[GroundTruth] = []
 
-    monkeypatch.setattr(run_benchmark, "judge_root_cause", fake_judge)
+    async def fake_judge(truth: GroundTruth, report: dict[str, Any]) -> tuple[bool, str]:
+        seen.append(truth)
+        return True, "names the 32Mi limit as the cause"
+
     result = _run(
         StubCluster(), cluster,
         message(tool_use("list_pods", {"namespace": "ns-j"})),
         message(tool_use(SUBMIT_REPORT, report_input(tools=("list_pods",), namespace="ns-j"))),
-        monkeypatch=monkeypatch, judge=True,
+        monkeypatch=monkeypatch, judge_fn=fake_judge, judge=True,
     )  # fmt: skip
     assert result.judge_pass is True and "32Mi" in (result.judge_reasoning or "")
+    assert seen == [SCENARIOS[0].ground_truth]
+
+
+def test_judge_verdict_parsing_and_prompt() -> None:
+    assert parse_verdict('{"root_cause_correct": true, "reasoning": "same cause"}') == (
+        True,
+        "same cause",
+    )
+    prompt = judge_prompt(SCENARIOS[0].ground_truth, {"summary": "s", "root_cause": "r"})
+    assert "32Mi" in prompt and "root_cause: r" in prompt
+
+
+def test_gemini_prices_are_listed() -> None:
+    usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+    assert cost_usd("gemini-3.8-flash", usage) == pytest.approx(4.50)
 
 
 def test_cli_args() -> None:
