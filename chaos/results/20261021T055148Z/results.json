@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "model": "gemini/gemini-3.5-flash-lite",
+    "effort": "medium",
+    "runs": 1,
+    "started_at": "2026-10-21T05:51:48+00:00",
+    "judge_model": "gemini-3.5-flash-lite",
+    "setup_only": false
+  },
+  "summary": [
+    {
+      "scenario": "01-oomkilled",
+      "title": "OOMKilled (memory limit too low for the workload)",
+      "expected": "patch_resources",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 5.0,
+      "median_latency_s": 7.984,
+      "mean_cost_usd": 0.007232
+    },
+    {
+      "scenario": "02-missing-env",
+      "title": "CrashLoopBackOff (app exits on a missing required env var)",
+      "expected": "none",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 5.0,
+      "median_latency_s": 10.109,
+      "mean_cost_usd": 0.008531
+    },
+    {
+      "scenario": "03-liveness-probe",
+      "title": "CrashLoopBackOff (liveness probe checks the wrong port)",
+      "expected": "none",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 5.0,
+      "median_latency_s": 6.844,
+      "mean_cost_usd": 0.006763
+    },
+    {
+      "scenario": "04-image-pull",
+      "title": "ImagePullBackOff (bad image tag introduced by a new rollout)",
+      "expected": "rollout_undo",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 3.0,
+      "median_latency_s": 3.828,
+      "mean_cost_usd": 0.003944
+    },
+    {
+      "scenario": "05-bad-rollout",
+      "title": "Bad rollout (new revision crashes, previous revision healthy)",
+      "expected": "rollout_undo",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 5.0,
+      "median_latency_s": 6.5,
+      "mean_cost_usd": 0.006261
+    },
+    {
+      "scenario": "06-pending-pod",
+      "title": "Pending pod (resource requests exceed node capacity)",
+      "expected": "patch_resources",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 5.0,
+      "median_latency_s": 8.765,
+      "mean_cost_usd": 0.00824
+    }
+  ],
+  "runs": [
+    {
+      "scenario": "01-oomkilled",
+      "run": 1,
+      "namespace": "chaos-oomkilled-477291",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "checkout-788bd9c6c5-qmr55: OOMKilled (restarts=1)",
+      "setup_seconds": 3.1,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "oom",
+        "memory",
+        "limit"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the memory limit of 32Mi is too low for the workload's ~40MB memory requirement, resulting in an OOMKilled state.",
+      "proposed_action": "patch_resources",
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 5,
+      "model_turns": 4,
+      "latency_ms": 7984,
+      "usage": {
+        "input_tokens": 11889,
+        "output_tokens": 1466,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.007232,
+      "summary": "Checkout pods are continuously crashing with OOMKilled errors because the container's startup allocation exceeds its 32Mi memory limit.",
+      "root_cause": "The checkout container's startup script attempts to allocate ~38.1 MB (40,000,000 bytes) of memory into a shell variable, which exceeds its configured memory limit of 32Mi, resulting in an OOMKilled (exit code 137) termination loop."
+    },
+    {
+      "scenario": "02-missing-env",
+      "run": 1,
+      "namespace": "chaos-missing-env-c60023",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "orders-84fb66d974-sdgtm: crash loop, exit code 1 (restarts=1)",
+      "setup_seconds": 3.1,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "database_url",
+        "env"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the container fails to start because the required DATABASE_URL environment variable is missing, which matches the ground truth.",
+      "proposed_action": null,
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 5,
+      "model_turns": 4,
+      "latency_ms": 10109,
+      "usage": {
+        "input_tokens": 12321,
+        "output_tokens": 1910,
+        "cache_read_input_tokens": 2003,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.008531,
+      "summary": "The orders service pods are failing to start and entering a crash loop because the startup script explicitly checks for the DATABASE_URL environment variable and exits with code 1 when it is missing. Since none of the allowed remediation actions can add or modify environment variables, proposed_fix is set to null.",
+      "root_cause": "The orders service container fails to start because the required DATABASE_URL environment variable is missing from the deployment specification, causing the startup script to exit with error code 1."
+    },
+    {
+      "scenario": "03-liveness-probe",
+      "run": 1,
+      "namespace": "chaos-liveness-probe-e8db80",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "payments-78fd4648cb-vdzvj: 2 restarts",
+      "setup_seconds": 75.3,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "liveness",
+        "8080"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the liveness probe is misconfigured to check port 8080 while the application actually listens on port 80, matching the ground truth.",
+      "proposed_action": null,
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 5,
+      "model_turns": 3,
+      "latency_ms": 6844,
+      "usage": {
+        "input_tokens": 8961,
+        "output_tokens": 1630,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.006763,
+      "summary": "The payments pods are restarting due to a liveness probe port mismatch (probe checks port 8080, app listens on port 80). None of the four automated action types can update deployment probe configurations, so proposed_fix is null.",
+      "root_cause": "The liveness probe is configured to check port 8080, but the application container runs httpd on port 80. This mismatch causes liveness probe connection refusals and repeated container restarts."
+    },
+    {
+      "scenario": "04-image-pull",
+      "run": 1,
+      "namespace": "chaos-image-pull-3c0fb5",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "catalog-555b6bf574-lktck: ErrImagePull (restarts=0)",
+      "setup_seconds": 5.1,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "image",
+        "tag"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that revision 2 introduced a non-existent container image tag (busybox:1.36-rc-does-not-exist) causing the ImagePullBackOff failures, which matches the ground truth.",
+      "proposed_action": "rollout_undo",
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 3,
+      "model_turns": 2,
+      "latency_ms": 3828,
+      "usage": {
+        "input_tokens": 6998,
+        "output_tokens": 738,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.003944,
+      "summary": "The catalog deployment rollout is stuck because revision 2 introduced an invalid image tag (busybox:1.36-rc-does-not-exist), leading to ErrImagePull and ImagePullBackOff. Rolling back to revision 1 resolves the issue.",
+      "root_cause": "The deployment update specified a non-existent container image tag (busybox:1.36-rc-does-not-exist), causing ImagePullBackOff failures on new pods."
+    },
+    {
+      "scenario": "05-bad-rollout",
+      "run": 1,
+      "namespace": "chaos-bad-rollout-3a4635",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "inventory-77bc49dd6b-n2wf6: crash loop, exit code 2 (restarts=1)",
+      "setup_seconds": 5.2,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "rollout",
+        "crash"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that revision 2 introduced a bad rollout causing pods to panic and exit with code 2 due to an incompatible configuration, which matches the ground truth.",
+      "proposed_action": "rollout_undo",
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 5,
+      "model_turns": 3,
+      "latency_ms": 6500,
+      "usage": {
+        "input_tokens": 10951,
+        "output_tokens": 1142,
+        "cache_read_input_tokens": 4036,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.006261,
+      "summary": "Error rates on inventory increased and pods started crashing due to a bad rollout (revision 2) that introduced an explicit panic and exit 2 in the container startup command. Proposing a rollout undo to revision 1.",
+      "root_cause": "A bad rollout (revision 2) of the inventory deployment updated the container command to explicitly panic and exit with code 2 due to an incompatible config schema, leading to continuous pod crashes."
+    },
+    {
+      "scenario": "06-pending-pod",
+      "run": 1,
+      "namespace": "chaos-pending-pod-cddc22",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "analytics-cdd874c78-hdlsh: unschedulable (Unschedulable: 0/2 nodes are available: 1 Insufficient memory, 1 node(s) had untolerated taint(s). preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.)",
+      "setup_seconds": 3.1,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "insufficient",
+        "memory"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the pod requested an excessively high memory allocation of 512Gi which exceeded node capacity, matching the ground truth.",
+      "proposed_action": "patch_resources",
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 5,
+      "model_turns": 4,
+      "latency_ms": 8765,
+      "usage": {
+        "input_tokens": 11160,
+        "output_tokens": 1957,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.00824,
+      "summary": "The analytics worker deployment has failed to start because its pod requests 512Gi of memory, exceeding node capacity and resulting in Unschedulable scheduling failures. Patching the memory request/limit to 512Mi resolves the issue.",
+      "root_cause": "The analytics deployment specifies an unrealistically high memory request and limit of 512Gi (likely intended to be 512Mi) for a busybox container, causing the scheduler to report insufficient memory and leaving the pod unschedulable."
+    }
+  ]
+}

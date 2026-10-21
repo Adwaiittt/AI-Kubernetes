@@ -1,0 +1,285 @@
+{
+  "meta": {
+    "model": "gemini/gemini-3.8-flash",
+    "effort": "medium",
+    "runs": 1,
+    "started_at": "2026-10-21T05:04:29+00:00",
+    "judge_model": "gemini-3.8-flash",
+    "setup_only": false
+  },
+  "summary": [
+    {
+      "scenario": "01-oomkilled",
+      "title": "OOMKilled (memory limit too low for the workload)",
+      "expected": "patch_resources",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 7.0,
+      "median_latency_s": 37.984,
+      "mean_cost_usd": 0.028429
+    },
+    {
+      "scenario": "02-missing-env",
+      "title": "CrashLoopBackOff (app exits on a missing required env var)",
+      "expected": "none",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 7.0,
+      "median_latency_s": 32.186,
+      "mean_cost_usd": 0.018593
+    },
+    {
+      "scenario": "03-liveness-probe",
+      "title": "CrashLoopBackOff (liveness probe checks the wrong port)",
+      "expected": "none",
+      "runs": 1,
+      "scored": 1,
+      "not_scored": 0,
+      "rca_keyword": "1/1",
+      "rca_judge": "1/1",
+      "action_match": "1/1",
+      "mean_tool_calls": 7.0,
+      "median_latency_s": 36.171,
+      "mean_cost_usd": 0.023713
+    },
+    {
+      "scenario": "04-image-pull",
+      "title": "ImagePullBackOff (bad image tag introduced by a new rollout)",
+      "expected": "rollout_undo",
+      "runs": 1,
+      "scored": 0,
+      "not_scored": 1,
+      "rca_keyword": "\u2013",
+      "rca_judge": "\u2013",
+      "action_match": "\u2013",
+      "mean_tool_calls": null,
+      "median_latency_s": null,
+      "mean_cost_usd": null
+    },
+    {
+      "scenario": "05-bad-rollout",
+      "title": "Bad rollout (new revision crashes, previous revision healthy)",
+      "expected": "rollout_undo",
+      "runs": 1,
+      "scored": 0,
+      "not_scored": 1,
+      "rca_keyword": "\u2013",
+      "rca_judge": "\u2013",
+      "action_match": "\u2013",
+      "mean_tool_calls": null,
+      "median_latency_s": null,
+      "mean_cost_usd": null
+    },
+    {
+      "scenario": "06-pending-pod",
+      "title": "Pending pod (resource requests exceed node capacity)",
+      "expected": "patch_resources",
+      "runs": 1,
+      "scored": 0,
+      "not_scored": 1,
+      "rca_keyword": "\u2013",
+      "rca_judge": "\u2013",
+      "action_match": "\u2013",
+      "mean_tool_calls": null,
+      "median_latency_s": null,
+      "mean_cost_usd": null
+    }
+  ],
+  "runs": [
+    {
+      "scenario": "01-oomkilled",
+      "run": 1,
+      "namespace": "chaos-oomkilled-6de217",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "checkout-788bd9c6c5-s4vd9: OOMKilled (restarts=1)",
+      "setup_seconds": 3.2,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "oom",
+        "memory",
+        "limit"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent accurately identified that the container's 32Mi memory limit was exceeded by a ~40MB memory allocation on startup, resulting in an OOM-kill (exit code 137).",
+      "proposed_action": "patch_resources",
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 7,
+      "model_turns": 4,
+      "latency_ms": 37984,
+      "usage": {
+        "input_tokens": 13476,
+        "output_tokens": 4886,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.028429,
+      "summary": "The checkout pod is crash-looping due to OOMKilled (exit code 137). On startup, the container attempts to load 40 MB of product catalog data into memory, which exceeds its 32Mi memory limit. Raising the memory limit to 128Mi will allow the container to start up and serve traffic.",
+      "root_cause": "The checkout deployment container 'app' has a memory limit of 32Mi, but its startup command executes 'catalog=$(head -c 40000000 /dev/zero | tr \\\\'\\\\0\\\\' \\\\'x\\\\')', which allocates 40,000,000 bytes (~38.15 MiB) in memory. This exceeds the 32Mi container limit, causing the cgroup OOM killer to terminate the container (exit code 137) immediately upon launch. As a result, the pod never becomes ready, enters CrashLoopBackOff, and ingress/cart requests to checkout fail with 502s."
+    },
+    {
+      "scenario": "02-missing-env",
+      "run": 1,
+      "namespace": "chaos-missing-env-61bdcc",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "orders-84fb66d974-vc84j: crash loop, exit code 1 (restarts=1)",
+      "setup_seconds": 3.1,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "database_url",
+        "env"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the container crashes on startup because the required DATABASE_URL environment variable is missing, and accurately noted that manual manifest updates are required as none of the automated actions can resolve it.",
+      "proposed_action": null,
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 7,
+      "model_turns": 4,
+      "latency_ms": 32186,
+      "usage": {
+        "input_tokens": 13916,
+        "output_tokens": 2175,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.018593,
+      "summary": "The orders service pod (orders-84fb66d974-vc84j) crashes on startup with exit code 1 because the required environment variable DATABASE_URL is not configured in the Deployment specification.",
+      "root_cause": "The orders pod fails to start and enters CrashLoopBackOff because the entrypoint script requires the environment variable DATABASE_URL, which is missing from the container's environment configuration (only LOG_LEVEL is defined). None of the available automated actions (patch_resources, rollout_restart, rollout_undo, scale) can inject the missing environment variable; a deployment manifest update adding DATABASE_URL is required."
+    },
+    {
+      "scenario": "03-liveness-probe",
+      "run": 1,
+      "namespace": "chaos-liveness-probe-cbcff0",
+      "status": "completed",
+      "error": null,
+      "failure_observed": "payments-78fd4648cb-c6nv6: 2 restarts",
+      "setup_seconds": 75.4,
+      "rca_keyword_pass": true,
+      "rca_keywords_matched": [
+        "liveness",
+        "8080"
+      ],
+      "judge_pass": true,
+      "judge_reasoning": "The agent correctly identified that the liveness probe targets port 8080 while the server listens on port 80, causing connection refused errors and repeated container restarts.",
+      "proposed_action": null,
+      "action_match": true,
+      "confidence": "high",
+      "tool_calls": 7,
+      "model_turns": 5,
+      "latency_ms": 36171,
+      "usage": {
+        "input_tokens": 18592,
+        "output_tokens": 2605,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.023713,
+      "summary": "The payments container restarts repeatedly because its liveness probe is configured to probe port 8080 at /healthz, but the container's httpd server is listening on port 80. As a result, kubelet's probe attempts receive 'connection refused' and terminate the container every few seconds. Resolving this requires editing the Deployment's probe configuration.",
+      "root_cause": "The payments deployment has a misconfigured liveness probe that targets HTTP port 8080 (/healthz), whereas the container's web server (httpd) listens on port 80. Consequently, probe requests to port 8080 are refused by the TCP stack ('connect: connection refused'). After exceeding the failure threshold of 2 within ~8 seconds, kubelet terminates the container with SIGKILL (exit code 137) and restarts it, causing a continuous restart loop. Fixing this requires updating the Deployment manifest to set the liveness probe port to 80 (or reconfiguring the container to listen on 8080), which cannot be done via patch_resources, rollout_undo, rollout_restart, or scale."
+    },
+    {
+      "scenario": "04-image-pull",
+      "run": 1,
+      "namespace": "chaos-image-pull-612c3d",
+      "status": "api_error",
+      "error": "Gemini API error 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 1h51m49.938172319s.",
+      "failure_observed": "catalog-555b6bf574-2qz57: ErrImagePull (restarts=0)",
+      "setup_seconds": 5.2,
+      "rca_keyword_pass": false,
+      "rca_keywords_matched": [
+        "",
+        ""
+      ],
+      "judge_pass": null,
+      "judge_reasoning": null,
+      "proposed_action": null,
+      "action_match": false,
+      "confidence": null,
+      "tool_calls": 3,
+      "model_turns": 1,
+      "latency_ms": 17500,
+      "usage": {
+        "input_tokens": 1863,
+        "output_tokens": 165,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.002016,
+      "summary": null,
+      "root_cause": null
+    },
+    {
+      "scenario": "05-bad-rollout",
+      "run": 1,
+      "namespace": "chaos-bad-rollout-93c1eb",
+      "status": "api_error",
+      "error": "Gemini API error 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 1h51m34.179736771s.",
+      "failure_observed": "inventory-77bc49dd6b-hkrm4: crash loop, exit code 2 (restarts=1)",
+      "setup_seconds": 5.2,
+      "rca_keyword_pass": false,
+      "rca_keywords_matched": [
+        "",
+        ""
+      ],
+      "judge_pass": null,
+      "judge_reasoning": null,
+      "proposed_action": null,
+      "action_match": false,
+      "confidence": null,
+      "tool_calls": 0,
+      "model_turns": 0,
+      "latency_ms": 10530,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.0,
+      "summary": null,
+      "root_cause": null
+    },
+    {
+      "scenario": "06-pending-pod",
+      "run": 1,
+      "namespace": "chaos-pending-pod-20c658",
+      "status": "api_error",
+      "error": "Gemini API error 429: You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3.8-flash\nPlease retry in 1h51m20.928847757s.",
+      "failure_observed": "analytics-cdd874c78-25sg6: unschedulable (Unschedulable: 0/2 nodes are available: 1 Insufficient memory, 1 node(s) had untolerated taint(s). preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.)",
+      "setup_seconds": 3.1,
+      "rca_keyword_pass": false,
+      "rca_keywords_matched": [
+        "",
+        ""
+      ],
+      "judge_pass": null,
+      "judge_reasoning": null,
+      "proposed_action": null,
+      "action_match": false,
+      "confidence": null,
+      "tool_calls": 0,
+      "model_turns": 0,
+      "latency_ms": 10125,
+      "usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 0
+      },
+      "cost_usd": 0.0,
+      "summary": null,
+      "root_cause": null
+    }
+  ]
+}
