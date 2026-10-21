@@ -16,13 +16,20 @@ four allowed actions can fix the problem.
 
 ## Run
 
-```bash
-# Free: check every scenario reproduces its failure state (no API calls)
-uv run --project backend python chaos/run_benchmark.py --setup-only
+Run from `backend/` so the LLM settings in `backend/.env` are picked up (`LLM_PROVIDER`,
+`GEMINI_API_KEY`/`GEMINI_MODEL` or `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`):
 
-# Real benchmark (costs API tokens): ANTHROPIC_API_KEY + ANTHROPIC_MODEL from env or backend/.env
-uv run --project backend python chaos/run_benchmark.py --runs 3
-uv run --project backend python chaos/run_benchmark.py --scenarios 01 05 --judge
+```bash
+cd backend
+# Free: check every scenario reproduces its failure state (no API calls)
+uv run python ../chaos/run_benchmark.py --setup-only
+
+# Real benchmark (uses API quota / tokens)
+uv run python ../chaos/run_benchmark.py --runs 3 --judge
+uv run python ../chaos/run_benchmark.py --scenarios 01 05 --provider gemini --model gemini-3.8-flash
+
+# Rate-limited (e.g. a free tier)? Re-run only the runs that hit the quota, in place:
+uv run python ../chaos/run_benchmark.py --judge --retry-unscored ../chaos/results/<timestamp>
 ```
 
 Needs the kind cluster from `deploy/scripts/setup-kind.sh` and an admin kubeconfig context for
@@ -44,8 +51,11 @@ the harness (it creates namespaces). The **agent** never uses that: each run min
 - **RCA (judge),** with `--judge`: an LLM grades the root cause against the ground-truth
   description, catching paraphrases and keyword-stuffed wrong answers.
 - **Fix match:** the proposed `action_type` (or no fix) is in `expected_actions`.
-- **Tool calls, latency, cost:** from the agent's own accounting. Cost uses the per-model prices
-  in `scoring.py` (USD per MTok: input, output, cache read, 5-min cache write).
+- **Tool calls, latency, cost:** from the agent's own accounting. Cost uses the per-model
+  paid-tier prices in `scoring.py` (USD per MTok: input, output, cache read, cache write).
+- **Not scored:** runs where the setup failed or the **LLM API** itself failed (quota, outage)
+  measure nothing about the agent. They're excluded from the rates and listed separately. Agent
+  failures (refusals, invalid reports, hitting the tool cap) still count as misses.
 
 Results go to `chaos/results/<timestamp>/results.{md,json}`; the JSON has every run's report
 summary, root cause and the matched keywords.

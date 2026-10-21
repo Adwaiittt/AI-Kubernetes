@@ -1,0 +1,31 @@
+{
+  "summary": "The checkout pods are repeatedly restarting with OOMKilled status because a recent deployment configuration set the container memory limit to 32Mi, while the application's startup script attempts to allocate ~38.1 MB of memory.",
+  "root_cause": "The checkout deployment container has a memory limit of 32Mi, but its startup command allocates 40,000,000 bytes (~38.1 MB) into memory, exceeding the limit and causing container termination with OOMKilled (Exit Code 137).",
+  "confidence": "high",
+  "evidence": [
+    {
+      "tool_name": "list_pods",
+      "excerpt": "{\"name\":\"checkout-788bd9c6c5-t2249\",...,\"status_reason\":\"OOMKilled\",...}",
+      "why_it_matters": "Shows that the checkout pod is failing due to OOMKilled."
+    },
+    {
+      "tool_name": "describe_pod",
+      "excerpt": "{\"name\":\"app\",\"init\":false,\"image\":\"busybox:1.36\",\"ready\":false,\"restart_count\":1,\"state\":{\"state\":\"terminated\",\"reason\":\"OOMKilled\",\"exit_code\":137,...},\"resources\":{\"requests\":{\"cpu\":\"10m\",\"memory\":\"16Mi\"},\"limits\":{\"memory\":\"32Mi\"}},\"command\":[\"sh\",\"-c\",\"echo \\\"loading product catalog into memory\\\"\\ncatalog=$(head -c 40000000 /dev/zero | tr '\\\\0' 'x')\\necho \\\"catalog loaded (${#catalog} bytes); serving\\\"\\nsleep 3600\\n\"]}",
+      "why_it_matters": "Proves the container memory limit is 32Mi while the startup command allocates 40,000,000 bytes (~38.1 MB), directly causing OOMKilled (Exit Code 137)."
+    }
+  ],
+  "proposed_fix": {
+    "action_type": "patch_resources",
+    "namespace": "demo",
+    "target": "checkout",
+    "parameters": {
+      "memory_limit": "128Mi",
+      "container": "app"
+    },
+    "rationale": "Increase the memory limit from 32Mi to 128Mi so that the container can successfully allocate ~38.1 MB for the product catalog without triggering an OOM kill.",
+    "risk": "Low. Increasing the memory limit allows the container to run successfully without OOMKilled restarts."
+  },
+  "alternative_hypotheses": [
+    "Rollout undo to the previous revision (checkout-c87575bc5) which had a higher memory limit (128Mi)"
+  ]
+}
