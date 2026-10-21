@@ -10,7 +10,8 @@ from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 from sqlalchemy.engine import Engine
 
-from app.agent.loop import AgentConfig, ConfigurationError, Investigator, build_anthropic_client
+from app.agent.loop import AgentConfig, ConfigurationError, Investigator
+from app.agent.providers import build_provider
 from app.agent.tools import build_registry
 from app.agent.tools.base import ToolContext
 from app.core.config import Settings
@@ -54,11 +55,9 @@ def build_state(settings: Settings) -> AppState:
     investigations: InvestigationService | None = None
     if reader is not None:
         try:
+            config = AgentConfig.from_settings(settings)
             investigator = Investigator(
-                build_anthropic_client(settings),
-                build_registry(),
-                reader,
-                AgentConfig.from_settings(settings),
+                build_provider(settings, config), build_registry(), reader, config
             )
             investigations = InvestigationService(engine, investigator, broker.publish)
         except ConfigurationError as exc:

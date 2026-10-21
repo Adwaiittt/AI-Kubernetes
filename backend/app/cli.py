@@ -2,7 +2,8 @@
 
     uv run python -m app.cli --namespace demo --target checkout --symptom "pods keep restarting"
 
-Requires ANTHROPIC_API_KEY, ANTHROPIC_MODEL and MONITOR_READER_KUBECONFIG (env or .env).
+Requires MONITOR_READER_KUBECONFIG and an LLM: ANTHROPIC_API_KEY + ANTHROPIC_MODEL (default),
+or LLM_PROVIDER=gemini + GEMINI_API_KEY (env or .env).
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ import asyncio
 import json
 import sys
 
-from app.agent.loop import AgentConfig, AgentEvent, Investigator, build_anthropic_client
+from app.agent.loop import AgentConfig, AgentEvent, Investigator
+from app.agent.providers import build_provider
 from app.agent.tools import build_registry
 from app.agent.tools.base import ToolContext
 from app.core.config import get_settings
@@ -38,9 +40,8 @@ def _print_event(_incident_id: str, event: AgentEvent) -> None:
 async def _main(args: argparse.Namespace) -> int:
     settings = get_settings()
     ctx = ToolContext(build_reader_clients(settings), settings)
-    investigator = Investigator(
-        build_anthropic_client(settings), build_registry(), ctx, AgentConfig.from_settings(settings)
-    )
+    config = AgentConfig.from_settings(settings)
+    investigator = Investigator(build_provider(settings, config), build_registry(), ctx, config)
     engine = create_db_engine(settings.database_url)
     init_db(engine)
 

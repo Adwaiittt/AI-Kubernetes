@@ -28,8 +28,15 @@ class Settings(BaseSettings):
     list_max_items: int = Field(default=100, gt=0)
     events_max_items: int = Field(default=50, gt=0)
 
-    # --- Claude agent -----------------------------------------------------------------------
+    # --- LLM provider -----------------------------------------------------------------------
     # Secrets come only from the environment (or an untracked .env); never hardcoded.
+    llm_provider: Literal["anthropic", "gemini"] = Field(default="anthropic", alias="LLM_PROVIDER")
+
+    # Gemini (LLM_PROVIDER=gemini)
+    gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-3.8-flash", alias="GEMINI_MODEL")
+
+    # Claude (LLM_PROVIDER=anthropic)
     anthropic_api_key: SecretStr | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     anthropic_model: str | None = Field(default=None, alias="ANTHROPIC_MODEL")
     anthropic_effort: Effort = Field(default="medium", alias="ANTHROPIC_EFFORT")

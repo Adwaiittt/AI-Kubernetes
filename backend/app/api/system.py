@@ -76,7 +76,9 @@ async def readyz(state: State, response: Response) -> Readiness:
 
     checks["agent"] = CheckResult(
         ok=state.investigations is not None,
-        detail=None if state.investigations else "ANTHROPIC_MODEL / reader not configured",
+        detail=None
+        if state.investigations
+        else "LLM provider (API key / model) or cluster reader not configured",
     )
     checks["approvals"] = CheckResult(
         ok=state.approvals is not None and bool(state.approvers),
