@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  TRIVY_VERSION: v0.69.1
+  TRIVY_VERSION: v0.75.0
 
 jobs:
   images:
