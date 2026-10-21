@@ -208,24 +208,32 @@ def test_aggregate_and_markdown() -> None:
         RunResult(scenario=sc[0].id, run=2, namespace="n2", status="completed",
                   rca_keyword_pass=False, action_match=True, tool_calls=7, latency_ms=30_000,
                   cost_usd=0.07, judge_pass=True),
+        RunResult(scenario=sc[0].id, run=3, namespace="n4", status="api_error",
+                  error="Gemini API error 429: quota exceeded\nretry later"),
         RunResult(scenario=sc[1].id, run=1, namespace="n3", status="setup_failed", error="boom"),
+        RunResult(scenario=sc[1].id, run=2, namespace="n5", status="failed",
+                  error="report failed validation 2 times"),
     ]  # fmt: skip
     rows = aggregate(sc, results)
+    # The API-quota run is excluded; the two real runs are scored.
+    assert rows[0]["scored"] == 2 and rows[0]["not_scored"] == 1
     assert rows[0]["rca_keyword"] == "1/2" and rows[0]["rca_judge"] == "2/2"
     assert rows[0]["mean_tool_calls"] == 6 and rows[0]["median_latency_s"] == 25
     assert rows[0]["mean_cost_usd"] == pytest.approx(0.06)
-    assert rows[1]["setup_failed"] == 1 and rows[1]["rca_keyword"] == "–"
+    # A failed investigation IS scored (as a miss); a setup failure is not.
+    assert rows[1]["scored"] == 1 and rows[1]["rca_keyword"] == "0/1"
     md = markdown(
         rows,
         results,
         {"model": MODEL, "effort": "medium", "runs": 2, "started_at": "t", "judge_model": MODEL},
     )
-    assert (
-        "| OOMKilled (memory limit too low for the workload) | `patch_resources` | 1/2 | 2/2 |"
-        in md
-    )
+    title = "OOMKilled (memory limit too low for the workload)"
+    assert f"| {title} | `patch_resources` | 2/3 | 1/2 | 2/2 |" in md
     assert "total cost $0.1200" in md
+    assert "`02-missing-env` run 2: report failed validation 2 times" in md
     assert "`02-missing-env` run 1: setup_failed: boom" in md
+    assert "`01-oomkilled` run 3: api_error: Gemini API error 429: quota exceeded" in md
+    assert "retry later" not in md  # only the first line of long API errors
     setup = markdown(rows, results, {"setup_only": True, "started_at": "t"})
     assert "| 02-missing-env | 1 | no: boom |" in setup
 
@@ -356,6 +364,50 @@ def test_run_one_with_judge(cluster: FakeCluster, monkeypatch: Any) -> None:
     )  # fmt: skip
     assert result.judge_pass is True and "32Mi" in (result.judge_reasoning or "")
     assert seen == [SCENARIOS[0].ground_truth]
+
+
+def test_llm_api_failure_is_not_scored(cluster: FakeCluster, monkeypatch: Any) -> None:
+    import anthropic
+    import httpx2
+
+    quota = anthropic.RateLimitError(
+        "quota exceeded",
+        response=httpx2.Response(429, request=httpx2.Request("POST", "https://x")),
+        body=None,
+    )
+    stub = StubCluster()
+    monkeypatch.setattr(ReadOnlyClients, "from_api_client", lambda *_a, **_k: cluster.ctx.clients)
+    client, _ = fake_client(quota)
+    settings = Settings(_env_file=None, ANTHROPIC_MODEL=MODEL)
+    stub_any: Any = stub
+    result = asyncio.run(
+        run_benchmark.run_one(SCENARIOS[0], 1, stub_any, _args(), settings, client)
+    )
+    assert result.status == "api_error"
+    assert result.error == "Claude API error 429: quota exceeded"
+    assert stub.deleted == stub.created
+
+
+def test_load_previous_reclassifies_api_failures(tmp_path: Any) -> None:
+    import json
+
+    runs = [
+        RunResult(scenario="01-oomkilled", run=1, namespace="a", status="completed"),
+        RunResult(scenario="04-image-pull", run=1, namespace="b", status="failed",
+                  error="Gemini API error 429: You exceeded your current quota"),
+        RunResult(scenario="05-bad-rollout", run=1, namespace="c", status="failed",
+                  error="report failed validation 2 times"),
+    ]  # fmt: skip
+    (tmp_path / "results.json").write_text(
+        json.dumps(
+            {"meta": {"model": "gemini/m", "runs": 1}, "runs": [r.model_dump() for r in runs]}
+        )
+    )
+    loaded, meta = run_benchmark.load_previous(tmp_path)
+    assert [r.status for r in loaded] == ["completed", "api_error", "failed"]
+    assert meta["model"] == "gemini/m"
+    args = run_benchmark.parse_args(["--retry-unscored", str(tmp_path)])
+    assert args.retry_unscored == str(tmp_path)
 
 
 def test_judge_verdict_parsing_and_prompt() -> None:

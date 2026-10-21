@@ -72,7 +72,7 @@ class RunResult(BaseModel):
     scenario: str
     run: int
     namespace: str
-    status: str  # completed | failed | setup_failed
+    status: str  # completed | failed | setup_failed | api_error (last two: not scored)
     error: str | None = None
     failure_observed: str | None = None
     setup_seconds: float = 0.0
@@ -92,6 +92,14 @@ class RunResult(BaseModel):
     root_cause: str | None = None
 
 
+NOT_SCORED = frozenset({"setup_failed", "api_error"})
+
+
+def scored(r: RunResult) -> bool:
+    """Runs that measured the agent. Setup and LLM-API failures say nothing about it."""
+    return r.status not in NOT_SCORED
+
+
 def _rate(values: Sequence[bool]) -> str:
     return f"{sum(values)}/{len(values)}" if values else "–"
 
@@ -104,7 +112,7 @@ def aggregate(scenarios: list[Scenario], results: list[RunResult]) -> list[dict[
     rows = []
     for sc in scenarios:
         rs = [r for r in results if r.scenario == sc.id]
-        ran = [r for r in rs if r.status != "setup_failed"]
+        ran = [r for r in rs if scored(r)]
         judged = [r.judge_pass for r in ran if r.judge_pass is not None]
         costs = [r.cost_usd for r in ran if r.cost_usd is not None]
         rows.append(
@@ -113,7 +121,8 @@ def aggregate(scenarios: list[Scenario], results: list[RunResult]) -> list[dict[
                 "title": sc.title,
                 "expected": ", ".join(a or "none" for a in sc.ground_truth.expected_actions),
                 "runs": len(rs),
-                "setup_failed": len(rs) - len(ran),
+                "scored": len(ran),
+                "not_scored": len(rs) - len(ran),
                 "rca_keyword": _rate([r.rca_keyword_pass for r in ran]),
                 "rca_judge": _rate(judged) if judged else "–",
                 "action_match": _rate([r.action_match for r in ran]),
@@ -164,18 +173,19 @@ def markdown(rows: list[dict[str, Any]], results: list[RunResult], meta: dict[st
         f"- Started: {meta['started_at']}",
         f"- LLM judge: {meta['judge_model'] or 'off'}",
         "",
-        "| Scenario | Expected fix | RCA (keyword) | RCA (judge) | Fix match | Tool calls "
-        "| Latency p50 (s) | Cost / run |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Scenario | Expected fix | Scored runs | RCA (keyword) | RCA (judge) | Fix match "
+        "| Tool calls | Latency p50 (s) | Cost / run |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         cost = f"${r['mean_cost_usd']:.4f}" if r["mean_cost_usd"] is not None else "–"
         lines.append(
-            f"| {r['title']} | `{r['expected']}` | {r['rca_keyword']} | {r['rca_judge']} | "
+            f"| {r['title']} | `{r['expected']}` | {r['scored']}/{r['runs']} "
+            f"| {r['rca_keyword']} | {r['rca_judge']} | "
             f"{r['action_match']} | {_fmt(r['mean_tool_calls'])} "
             f"| {_fmt(r['median_latency_s'])} | {cost} |"
         )
-    ran = [r for r in results if r.status != "setup_failed"]
+    ran = [r for r in results if scored(r)]
     if ran:
         total_cost = sum(r.cost_usd or 0 for r in ran)
         lines += [
@@ -189,8 +199,19 @@ def markdown(rows: list[dict[str, Any]], results: list[RunResult], meta: dict[st
             + f" · fix match {_rate([r.action_match for r in ran])}"
             + f" · total cost ${total_cost:.4f}",
         ]
-    failures = [r for r in results if r.status != "completed"]
+    failures = [r for r in results if r.status == "failed"]
     if failures:
-        lines += ["", "## Failed runs", ""]
-        lines += [f"- `{r.scenario}` run {r.run}: {r.status}: {r.error}" for r in failures]
+        lines += ["", "## Failed investigations (scored as misses)", ""]
+        lines += [f"- `{r.scenario}` run {r.run}: {r.error}" for r in failures]
+    skipped = [r for r in results if not scored(r)]
+    if skipped:
+        lines += [
+            "",
+            "## Not scored (setup or LLM API failures; no measurement of the agent)",
+            "",
+        ]
+        lines += [
+            f"- `{r.scenario}` run {r.run}: {r.status}: {(r.error or '').splitlines()[0][:200]}"
+            for r in skipped
+        ]
     return "\n".join(lines) + "\n"

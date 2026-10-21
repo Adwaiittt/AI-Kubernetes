@@ -380,6 +380,8 @@ def test_refusal_fails_cleanly(cluster: FakeCluster) -> None:
     result = run(inv)
     assert result.status == "failed"
     assert result.error == "model declined the request (category=cyber)"
+    assert result.error_kind == "agent"
+    assert result.transcript[-1].data["kind"] == "agent"
 
 
 def test_max_tokens_fails_cleanly(cluster: FakeCluster) -> None:
@@ -411,3 +413,4 @@ def test_api_errors_fail_cleanly(cluster: FakeCluster, exc: Exception, expected:
     result = run(inv)
     assert result.status == "failed"
     assert result.error == expected
+    assert result.error_kind == "provider"  # the API failed, not the agent

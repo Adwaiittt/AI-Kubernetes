@@ -104,6 +104,9 @@ class InvestigationResult(BaseModel):
     status: Literal["completed", "failed"]
     report: RootCauseReport | None = None
     error: str | None = None
+    # Why it failed: "provider" = the LLM API itself (quota, outage, network);
+    # "agent" = the investigation (refusal, invalid reports, caps). None when completed.
+    error_kind: Literal["provider", "agent"] | None = None
     model: str
     tool_calls: int
     model_turns: int
@@ -121,6 +124,10 @@ async def _discard(_event: AgentEvent) -> None:
 
 class InvestigationFailedError(Exception):
     pass
+
+
+class _ProviderFailedError(InvestigationFailedError):
+    """The model API call itself failed (not the agent's reasoning)."""
 
 
 @dataclass
@@ -166,11 +173,13 @@ class Investigator:
             status: Literal["completed", "failed"],
             report: RootCauseReport | None = None,
             error: str | None = None,
+            error_kind: Literal["provider", "agent"] | None = None,
         ) -> InvestigationResult:
             return InvestigationResult(
                 status=status,
                 report=report,
                 error=error,
+                error_kind=error_kind,
                 model=self._config.model,
                 tool_calls=state.tool_calls,
                 model_turns=state.turns,
@@ -191,8 +200,11 @@ class Investigator:
         try:
             report = await self._loop(incident, conversation, state, emit)
         except InvestigationFailedError as exc:
-            await emit("investigation_failed", error=str(exc))
-            return result("failed", error=str(exc))
+            kind: Literal["provider", "agent"] = (
+                "provider" if isinstance(exc, _ProviderFailedError) else "agent"
+            )
+            await emit("investigation_failed", error=str(exc), kind=kind)
+            return result("failed", error=str(exc), error_kind=kind)
         return result("completed", report=report)
 
     async def _loop(
@@ -214,7 +226,7 @@ class Investigator:
             try:
                 turn = await conversation.send()
             except ProviderError as exc:
-                raise InvestigationFailedError(str(exc)) from exc
+                raise _ProviderFailedError(str(exc)) from exc
             state.turns += 1
             state.usage.add(turn.usage)
             await emit(

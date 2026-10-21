@@ -45,6 +45,7 @@ from chaos.scoring import (
     keyword_score,
     markdown,
     proposed_action,
+    scored,
 )
 
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
@@ -94,9 +95,11 @@ async def run_one(
         report = outcome.report.model_dump(mode="json") if outcome.report else None
         kw = keyword_score(scenario.ground_truth, report)
         usage = outcome.usage.model_dump()
+        # An LLM API failure (quota, outage) says nothing about the agent: not scored.
+        api_failed = outcome.status == "failed" and outcome.error_kind == "provider"
         result = result.model_copy(
             update={
-                "status": outcome.status,
+                "status": "api_error" if api_failed else outcome.status,
                 "error": outcome.error,
                 "rca_keyword_pass": kw.passed,
                 "rca_keywords_matched": kw.matched,
@@ -138,7 +141,37 @@ async def run_one(
             await asyncio.to_thread(cluster.delete_namespace, namespace)
 
 
+API_ERROR_PREFIXES = (
+    "Gemini API error",
+    "Gemini API unreachable",
+    "Claude API error",
+    "Claude API unreachable",
+)
+
+
+def load_previous(out_dir: Path) -> tuple[list[RunResult], dict[str, Any]]:
+    """Runs from an earlier results.json, with API failures (re)classified as not scored."""
+    data = json.loads((out_dir / "results.json").read_text(encoding="utf-8"))
+    runs = []
+    for raw in data["runs"]:
+        r = RunResult.model_validate(raw)
+        if r.status == "failed" and (r.error or "").startswith(API_ERROR_PREFIXES):
+            r = r.model_copy(update={"status": "api_error"})  # written before classification
+        runs.append(r)
+    meta: dict[str, Any] = data["meta"]
+    return runs, meta
+
+
 async def main_async(args: argparse.Namespace) -> int:
+    previous: list[RunResult] = []
+    prev_meta: dict[str, Any] | None = None
+    if args.retry_unscored:
+        previous, prev_meta = load_previous(Path(args.retry_unscored))
+        if prev_meta.get("setup_only"):
+            raise SystemExit("--retry-unscored needs a real benchmark run, not --setup-only")
+        args.runs = prev_meta["runs"]
+        args.scenarios = sorted({r.scenario for r in previous})
+        args.out = args.retry_unscored
     scenarios = load_scenarios(only=args.scenarios)
     settings = Settings()
     if args.provider:
@@ -153,23 +186,43 @@ async def main_async(args: argparse.Namespace) -> int:
         llm = build_provider(settings, config)
         if args.judge:
             judge = build_judge(settings, args.judge_model or config.model)
+    model_id = "setup-only" if config is None else f"{config.provider}/{config.model}"
+    if prev_meta is not None and prev_meta["model"] != model_id:
+        raise SystemExit(
+            f"--retry-unscored: previous results are for {prev_meta['model']}, not {model_id}; "
+            "use the same provider and model so the table stays comparable"
+        )
     cluster = Cluster(admin_api_client(args.kubeconfig, args.context))
 
     started_at = datetime.now(UTC)
-    results: list[RunResult] = []
-    for scenario in scenarios:
-        for run in range(1, args.runs + 1):
+    if prev_meta is not None:
+        results = [r for r in previous if scored(r)]
+        todo = [(r.scenario, r.run) for r in previous if not scored(r)]
+        by_id = {s.id: s for s in scenarios}
+        log(f"retrying {len(todo)} unscored run(s), keeping {len(results)} scored")
+        for scenario_id, run in todo:
+            scenario = by_id[scenario_id]
             results.append(await run_one(scenario, run, cluster, args, settings, llm, judge))
+        results.sort(key=lambda r: (r.scenario, r.run))
+    else:
+        results = []
+        for scenario in scenarios:
+            for run in range(1, args.runs + 1):
+                results.append(await run_one(scenario, run, cluster, args, settings, llm, judge))
 
     rows = aggregate(scenarios, results)
     meta = {
-        "model": "setup-only" if config is None else f"{config.provider}/{config.model}",
+        "model": model_id,
         "effort": settings.anthropic_effort,
         "runs": args.runs,
-        "started_at": started_at.isoformat(timespec="seconds"),
+        "started_at": prev_meta["started_at"]
+        if prev_meta
+        else started_at.isoformat(timespec="seconds"),
         "judge_model": (args.judge_model or config.model) if args.judge and config else None,
         "setup_only": args.setup_only,
     }
+    if prev_meta is not None:
+        meta["resumed_at"] = started_at.isoformat(timespec="seconds")
     out_dir = Path(args.out) if args.out else RESULTS_DIR / started_at.strftime("%Y%m%dT%H%M%SZ")
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "results.json").write_text(
@@ -204,6 +257,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--kubeconfig", help="admin kubeconfig for the harness (default: KUBECONFIG)")
     p.add_argument("--context", help="kubeconfig context (default: current)")
     p.add_argument("--out", help="output directory (default: chaos/results/<timestamp>)")
+    p.add_argument(
+        "--retry-unscored",
+        metavar="RESULTS_DIR",
+        help="re-run only the not-scored runs (API quota / setup failures) of an earlier run "
+        "and update its results in place (useful on rate-limited free tiers)",
+    )
     args = p.parse_args(argv)
     if args.runs < 1:
         p.error("--runs must be >= 1")
