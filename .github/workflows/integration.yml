@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: helm/kind-action@ea822c7bf1874f08e5a491df991c228edffc3376 # v1.15.2
         with:
           version: v0.33.0
           cluster_name: k8s-ai-monitor
@@ -44,7 +44,7 @@ jobs:
           [ "$(kubectl auth can-i delete deployments -n demo --as=$e || true)" = no ]
           [ "$(kubectl auth can-i get secrets -n demo --as=$e || true)" = no ]
           echo "RBAC matches the security model"
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.13.2"
           python-version: "3.12"
